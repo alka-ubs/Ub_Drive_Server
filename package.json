@@ -11,7 +11,6 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "axios": "^1.10.0",
     "bcryptjs": "^3.0.2",
     "connect-pg-simple": "^10.0.0",
     "cors": "^2.8.5",
@@ -22,7 +21,6 @@
     "express-validator": "^7.2.1",
     "googleapis": "^149.0.0",
     "imap": "^0.8.19",
-    "imapflow": "^1.0.188",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.1",
     "nodemailer": "^6.10.0",

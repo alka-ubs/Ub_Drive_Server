@@ -1,13 +1,10 @@
 const express = require("express");
 const cors = require("cors");
-const nodemailer = require("nodemailer");
 const userRouter = require("./routers/user.router");
-const mailRouter = require("./routers/mail.router");
+const fileRouter = require("./routers/file.router");
 const folderRouter = require("./routers/folder.router");
-const keysRouter = require("./routers/keys.router");
-const organisationRoutes = require("./routers/organization.router");
-const domainRoutes = require("./routers/domain.router");
-const lableRoutes = require('./routers/label.router');
+const shareRouter = require("./routers/share.router");
+const keyRouter = require("./routers/driveKey");
 const session = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
 const jwt = require("jsonwebtoken");
@@ -19,6 +16,7 @@ const authenticateAdminOnly = require("./middleware/authenticateAdminOnly");
 const authenticate = require("./middleware/auth.middleware");
 const sharedSession = require("express-socket.io-session");
 const { google } = require('googleapis');
+
 
 
 require("dotenv").config();
@@ -56,6 +54,7 @@ app.use(cors({
   origin: [
     'https://mail.ubshq.com',
     'https://localhost:5173',
+    'http://localhost:5173',
     'https://dev-mail.ubshq.com',
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -242,13 +241,14 @@ app.get('/debug/cookie', (req, res) => {
   console.log('📦 Session:', req.session);
   res.send('ok');
 });
-app.use("/mails", mailRouter);
+
 app.use("/users", userRouter);
-app.use("/folders", folderRouter);
-app.use("/keys", keysRouter);
-app.use('/organisations',organisationRoutes);
-app.use('/domain',domainRoutes);
-app.use('/lable',lableRoutes);
+app.use("/files",fileRouter);
+app.use("/folder",folderRouter);
+app.use("/shareWith",shareRouter);
+app.use("/key",keyRouter)
+
+
 // Session activity tracker
 app.use(async (req, res, next) => {
   try {

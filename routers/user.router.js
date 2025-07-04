@@ -1,4 +1,4 @@
-const { createUser, loginUser, getProfile, addUserToBlock, addUserToSpam, logoutUser, checkSession, updatePreferences, updateProfile, updatePassword, updateAvatar, verifyTokenExpire } = require("../controllers/user.controller");
+const { createUser, loginUser, getProfile, addUserToBlock, addUserToSpam, logoutUser, checkSession, updatePreferences, updateProfile, updatePassword, updateAvatar } = require("../controllers/user.controller");
 const authenticate = require("../middleware/auth.middleware");
 const { body, validationResult } = require('express-validator');
 const router = require("express").Router();
@@ -29,7 +29,6 @@ router.put('/updateAvtar', authenticate, updateAvatar);
 
 router.post("/register",  createUser);
 router.post("/login",  loginUser);
-router.get("/expireToken",verifyTokenExpire)
 router.post("/logout", authenticate,logoutUser);
 router.get("/profile", authenticate, getProfile);
 router.post("/block-email", authenticate, addUserToBlock);

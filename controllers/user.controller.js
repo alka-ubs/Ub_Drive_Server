@@ -7,7 +7,7 @@ const createUser = async (req, res) => {
   const { email, password, username, recovery_email, first_name, last_name, mobile } = req.body;
   const is_active = true;
 
-  const client = await pool.connect();
+  const client = await pool.connect(); // ✅ Use client for transactions
 
   try {
     const saltRounds = 10;
@@ -19,11 +19,11 @@ const createUser = async (req, res) => {
       `INSERT INTO users 
       (email, password, username, recovery_email, is_active, first_name, last_name, mobile) 
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
-      RETURNING *`,
+      RETURNING id`,
       [email, hashedPassword, username, recovery_email, is_active, first_name, last_name, mobile]
     );
 
-    const user = userResult.rows[0];
+    const userId = userResult.rows[0].id;
 
     await client.query(`
       INSERT INTO folders (user_id, name, type, sort_order)
@@ -34,45 +34,10 @@ const createUser = async (req, res) => {
         ($1, 'Trash', 'trash', 4),
         ($1, 'Spam', 'spam', 5),
         ($1, 'Archive', 'archive', 6)
-    `, [user.id]);
+    `, [userId]);
 
     await client.query('COMMIT');
-
-    // ✅ Auto-login logic after successful signup
-    req.session.userId = user.id;
-    req.session.email = user.email;
-    req.session.createdAt = new Date();
-    req.session.userAgent = req.headers['user-agent'] || 'unknown';
-    req.session.ip = req.ip;
-
-    const token = jwt.sign(
-      { email: user.email, user_id: user.id },
-      process.env.JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    req.session.save((err) => {
-      if (err) {
-        console.error("⚠️ Auto-login failed after signup:", err);
-        return res.status(200).json({
-          message: "Signup successful, but login session failed",
-          token,
-          userId: user.id,
-          email: user.email
-        });
-      }
-
-      return res.status(200).json({
-        message: "Signup & login successful",
-        token,
-        session: {
-          sessionId: req.sessionID,
-          createdAt: req.session.createdAt,
-          ip: req.session.ip,
-          userAgent: req.session.userAgent
-        }
-      });
-    });
+    res.status(201).send({ message: 'User registered successfully' });
 
   } catch (err) {
     await client.query('ROLLBACK');
@@ -90,7 +55,7 @@ const createUser = async (req, res) => {
       });
     }
   } finally {
-    client.release();
+    client.release(); // ✅ Valid
   }
 };
 
@@ -656,25 +621,6 @@ const updatePreferences =  async (req, res) => {
   }
 }
 
-
-const verifyTokenExpire = (req, res) => {
-  const token = req.body.token || req.headers.authorization?.split(" ")[1];
-
-  if (!token) {
-    return res.status(400).json({ message: "Token not provided" });
-  }
-
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    return res.status(200).json({ valid: true, expired: false, decoded });
-  } catch (err) {
-    if (err.name === "TokenExpiredError") {
-      return res.status(200).json({ valid: false, expired: true, message: "Token expired" });
-    }
-    return res.status(200).json({ valid: false, expired: false, message: "Invalid token" });
-  }
-};
-
 module.exports = {
   createUser, 
   loginUser, 
@@ -686,6 +632,5 @@ module.exports = {
   updatePreferences,
   updateProfile,
   updatePassword,
-  updateAvatar,
-  verifyTokenExpire
+  updateAvatar
 }
