@@ -56,12 +56,14 @@ app.use(cors({
     'https://localhost:5173',
     'http://localhost:5173',
     'https://dev-mail.ubshq.com',
+    "http://localhost:4000"
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type', 
     'Authorization', 
-    'X-CSRF-Token'
+    'X-CSRF-Token',
+    'x-file-category' 
   ],
   credentials: true,
   maxAge: 86400,
@@ -301,7 +303,7 @@ app.post('/api/emails/:id/snooze', authenticate, async (req, res) => {
 });
 
 console.log('🔌 Initializing Socket.IO server with CORS settings:', {
-  origins: ["https://mail.ubshq.com", "https://localhost:5173", "http://localhost:5173", "http://localhost:3000","https://dev-mail.ubshq.com"],
+  origins: ["https://mail.ubshq.com", "https://localhost:5173", "http://localhost:5173", "http://localhost:3000","https://dev-mail.ubshq.com","http://localhost:4000"],
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true
 });
@@ -310,7 +312,7 @@ console.log('🔌 Initializing Socket.IO server with CORS settings:', {
 //api.ubshq.com
 const io = socketIo(server, {
   cors: {
-    origin: ["https://mail.ubshq.com", "https://dev-mail.ubshq.com", "https://localhost:5173", "http://localhost:5173", "http://localhost:3000","https://dev-mail.ubshq.com"],
+    origin: ["https://mail.ubshq.com", "https://dev-mail.ubshq.com", "https://localhost:5173", "http://localhost:5173", "http://localhost:3000","https://dev-mail.ubshq.com","http://localhost:4000"],
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true
   }
