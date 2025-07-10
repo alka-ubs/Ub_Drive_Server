@@ -220,29 +220,81 @@ const getFolderContents = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.user_id;
 
-    const folder = await pool.query(
+    const result = await pool.query(
       `SELECT 
-        id, 
-        name, 
-        parent_id, 
-        created_at, 
-        location,
-        is_trashed, 
-        trashed_at,
-        sort_order
-       FROM driveFolders
-       WHERE id = $1 AND user_id = $2 AND is_trashed = false`,
+        f.id,
+        f.name,
+        f.parent_id,
+        f.user_id,
+        f.location,
+        f.created_at,
+        f.updated_at,
+        f.is_trashed,
+        f.trashed_at,
+        f.is_system,
+        f.sort_order,
+        f.type,
+        json_build_object(
+          'id', u.id,
+          'email', u.email,
+          'username', u.username,
+          'avatar', u.avatar,
+          'storage_limit', u.storage_limit,
+          'used_storage', u.used_storage
+        ) as owner,
+        (SELECT COUNT(*) FROM driveFolders WHERE parent_id = f.id) as subfolder_count,
+        (SELECT COUNT(*) FROM files WHERE parent_id = f.id AND is_trashed = false) as file_count,
+        COALESCE(
+          (SELECT json_agg(
+            json_build_object(
+              'id', fi.id,
+              'name', fi.name,
+              'type', fi.type,
+              'mime_type', fi.mime_type,
+              'size', fi.size,
+              'parent_id', fi.parent_id,
+              'storage_path', fi.storage_path,
+              'encrypted', fi.encrypted,
+              'iv', fi.iv,
+              'encrypted_aes_key', fi.encrypted_aes_key,
+              'created_at', fi.created_at,
+              'updated_at', fi.updated_at,
+              'is_starred', fi.is_starred,
+              'last_starred_at', fi.last_starred_at,
+              'is_trashed', fi.is_trashed,
+              'trashed_at', fi.trashed_at,
+              'is_archived', fi.is_archived,
+              'archived_at', fi.archived_at,
+              'importance_score', fi.importance_score,
+              'path', fi.path,
+              'shared_status', fi.shared_status,
+              'owner', json_build_object(
+                'id', u.id,
+                'email', u.email,
+                'username', u.username,
+                'avatar', u.avatar,
+                'storage_limit', u.storage_limit,
+                'used_storage', u.used_storage
+              )
+            )
+          ) FROM files fi
+          WHERE fi.parent_id = f.id AND fi.is_trashed = false),
+          '[]'::json
+        ) as files
+       FROM driveFolders f
+       JOIN users u ON f.user_id = u.id
+       WHERE f.id = $1 AND f.user_id = $2 AND f.is_trashed = false`,
       [id, userId]
     );
 
-    if (folder.rows.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Folder not found or access denied' });
     }
 
-    return res.json(folder.rows[0]);
+    res.json(result.rows[0]);
   } catch (error) {
     console.error('Get folder contents error:', error);
-    return res.status(500).json({ 
+    res.status(500).json({ 
       error: 'Failed to fetch folder',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
