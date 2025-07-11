@@ -1448,7 +1448,6 @@ const getDriveData = async (req, res) => {
     const userId = req.user.user_id;
     const offset = (page - 1) * limit;
 
-    // Validate parameters
     const validTypes = ['drive', 'recent', 'starred', 'trash'];
     if (!validTypes.includes(type)) {
       return res.status(400).json({
@@ -1458,242 +1457,111 @@ const getDriveData = async (req, res) => {
       });
     }
 
-    // Date filter for recent items
     let dateFilter = '';
-    let dateParams = [];
-    if (type === 'recent' && filter) {
+    let dateParam;
+    const baseParams = [userId];
+
+    if (folderId) baseParams.push(folderId);
+
+    if (filter) {
       const now = new Date();
       switch (filter) {
         case 'today':
-          dateFilter = 'AND updated_at >= $' + (cursor ? 5 : 4);
-          dateParams = [new Date(now.setHours(0, 0, 0, 0))];
+          dateParam = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
           break;
         case 'week':
-          dateFilter = 'AND updated_at >= $' + (cursor ? 5 : 4);
-          dateParams = [new Date(now.setDate(now.getDate() - 7))];
+          dateParam = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 7)).toISOString();
           break;
         case 'month':
-          dateFilter = 'AND updated_at >= $' + (cursor ? 5 : 4);
-          dateParams = [new Date(now.setMonth(now.getMonth() - 1))];
+          dateParam = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, now.getUTCDate())).toISOString();
           break;
         case 'year':
-          dateFilter = 'AND updated_at >= $' + (cursor ? 5 : 4);
-          dateParams = [new Date(now.getFullYear(), 0, 1)];
+          dateParam = new Date(Date.UTC(now.getUTCFullYear(), 0, 1)).toISOString();
           break;
+      }
+      if (dateParam) {
+        baseParams.push(dateParam);
+        dateFilter = `AND f.created_at >= $${baseParams.length}`;
       }
     }
 
-    // Base query parameters
-    let baseParams = [userId];
-    if (folderId) baseParams.push(folderId);
-    if (cursor) baseParams.push(cursor);
-    if (dateParams.length) baseParams = [...baseParams, ...dateParams];
-    
-    // Common item selection for all UNION queries
     const commonFolderSelect = `
-      f.id,
-      f.name,
-      f.type,
-      NULL as mime_type,
-      NULL as size,
-      f.parent_id,
-      f.user_id as owner_id,
-      NULL as storage_path,
-      f.created_at,
-      f.updated_at,
-      f.is_trashed,
-      false as is_starred,
-      f.location,
-      json_build_object(
-        'id', u.id,
-        'email', u.email,
-        'username', u.username,
-        'avatar', u.avatar,
-        'storage_limit', u.storage_limit,
-        'used_storage', u.used_storage
-      ) as owner,
+      f.id, f.name, f.type, NULL as mime_type, NULL as size, f.parent_id, f.user_id as owner_id, NULL as storage_path,
+      f.created_at, f.updated_at, f.is_trashed, f.is_starred, f.location,
+      json_build_object('id', u.id, 'email', u.email, 'username', u.username, 'avatar', u.avatar, 'storage_limit', u.storage_limit, 'used_storage', u.used_storage) as owner,
       true as is_folder
     `;
 
     const commonFileSelect = `
-      f.id,
-      f.name,
-      f.type,
-      f.mime_type,
-      f.size,
-      f.parent_id,
-      f.owner_id,
-      f.storage_path,
-      f.created_at,
-      f.updated_at,
-      f.is_trashed,
-      f.is_starred,
-      NULL as location,
-      json_build_object(
-        'id', u.id,
-        'email', u.email,
-        'username', u.username,
-        'avatar', u.avatar,
-        'storage_limit', u.storage_limit,
-        'used_storage', u.used_storage
-      ) as owner,
+      f.id, f.name, f.type, f.mime_type, f.size, f.parent_id, f.owner_id, f.storage_path,
+      f.created_at, f.updated_at, f.is_trashed, f.is_starred, NULL as location,
+      json_build_object('id', u.id, 'email', u.email, 'username', u.username, 'avatar', u.avatar, 'storage_limit', u.storage_limit, 'used_storage', u.used_storage) as owner,
       false as is_folder
     `;
 
-    // Main query construction
-    let query, countQuery;
-    switch (type) {
-      case 'drive':
-        query = `
-          WITH combined_items AS (
-            (
-              SELECT ${commonFolderSelect}
-              FROM drivefolders f
-              JOIN users u ON f.user_id = u.id
-              WHERE f.user_id = $1 AND f.parent_id ${folderId ? '= $2' : 'IS NULL'} AND f.is_trashed = false
-            )
-            UNION ALL
-            (
-              SELECT ${commonFileSelect}
-              FROM files f
-              JOIN users u ON f.owner_id = u.id
-              WHERE f.owner_id = $1 AND f.parent_id ${folderId ? '= $2' : 'IS NULL'} AND f.is_trashed = false
-            )
-          )
-          SELECT * FROM combined_items
-          ORDER BY is_folder DESC, name ASC
-          LIMIT $${folderId ? 3 : 2} OFFSET $${folderId ? 4 : 3}
-        `;
+    const folderCondition = folderId ? '= $2' : 'IS NULL';
 
-        countQuery = `
-          SELECT COUNT(*) as total_count FROM (
-            SELECT 1 FROM drivefolders f
-            WHERE f.user_id = $1 AND f.parent_id ${folderId ? '= $2' : 'IS NULL'} AND f.is_trashed = false
-            UNION ALL
-            SELECT 1 FROM files f
-            WHERE f.owner_id = $1 AND f.parent_id ${folderId ? '= $2' : 'IS NULL'} AND f.is_trashed = false
-          ) as combined
-        `;
-        break;
+    const orderField = type === 'recent' ? 'created_at' : 'created_at'; // kept generic and consistent
 
-case 'recent':
-        query = `
-          WITH combined_items AS (
-            (
-              SELECT ${commonFolderSelect}, f.created_at AS item_created_at
-              FROM drivefolders f
-              JOIN users u ON f.user_id = u.id
-              WHERE f.user_id = $1 AND f.is_trashed = false
-              ${cursor ? 'AND f.created_at < $3' : ''}
-              ${dateFilter.replace(/updated_at/g, 'created_at')}
-            )
-            UNION ALL
-            (
-              SELECT ${commonFileSelect}, f.created_at AS item_created_at
-              FROM files f
-              JOIN users u ON f.owner_id = u.id
-              WHERE f.owner_id = $1 AND f.is_trashed = false
-              ${cursor ? 'AND f.created_at < $3' : ''}
-              ${dateFilter.replace(/updated_at/g, 'created_at')}
-            )
-          )
-          SELECT * FROM combined_items
-          ORDER BY item_created_at DESC
-          LIMIT $${cursor ? 4 : 2} OFFSET $${cursor ? 5 : 3}
-        `;
+    const buildQuery = () => `
+      WITH combined_items AS (
+        (
+          SELECT ${commonFolderSelect}
+          FROM drivefolders f JOIN users u ON f.user_id = u.id
+          WHERE f.user_id = $1 AND f.parent_id ${folderCondition} 
+          ${type === 'trash' ? 'AND f.is_trashed = true' : 'AND f.is_trashed = false'}
+          ${type === 'starred' ? 'AND f.is_starred = true' : ''}
+          ${dateFilter}
+          ${cursor ? `AND f.created_at < $${baseParams.length + 1}` : ''}
+        )
+        UNION ALL
+        (
+          SELECT ${commonFileSelect}
+          FROM files f JOIN users u ON f.owner_id = u.id
+          WHERE f.owner_id = $1 AND f.parent_id ${folderCondition} 
+          ${type === 'trash' ? 'AND f.is_trashed = true' : 'AND f.is_trashed = false'}
+          ${type === 'starred' ? 'AND f.is_starred = true' : ''}
+          ${dateFilter}
+          ${cursor ? `AND f.created_at < $${baseParams.length + 1}` : ''}
+        )
+      )
+      SELECT * FROM combined_items
+      ORDER BY ${orderField} DESC
+      LIMIT $${baseParams.length + (cursor ? 2 : 1)} OFFSET $${baseParams.length + (cursor ? 3 : 2)}
+    `;
 
-        countQuery = `
-          SELECT COUNT(*) as total_count FROM (
-            SELECT 1 FROM drivefolders f
-            WHERE f.user_id = $1 AND f.is_trashed = false
-            ${dateFilter.replace(/updated_at/g, 'created_at')}
-            UNION ALL
-            SELECT 1 FROM files f
-            WHERE f.owner_id = $1 AND f.is_trashed = false
-            ${dateFilter.replace(/updated_at/g, 'created_at')}
-          ) as combined
-        `;
-        break;
+    const buildCountQuery = () => `
+      SELECT COUNT(*) as total_count FROM (
+        SELECT 1 FROM drivefolders f 
+        WHERE f.user_id = $1 AND f.parent_id ${folderCondition} 
+        ${type === 'trash' ? 'AND f.is_trashed = true' : 'AND f.is_trashed = false'}
+        ${type === 'starred' ? 'AND f.is_starred = true' : ''}
+        ${dateFilter}
+        ${cursor ? `AND f.created_at < $${baseParams.length + 1}` : ''}
+        UNION ALL
+        SELECT 1 FROM files f 
+        WHERE f.owner_id = $1 AND f.parent_id ${folderCondition} 
+        ${type === 'trash' ? 'AND f.is_trashed = true' : 'AND f.is_trashed = false'}
+        ${type === 'starred' ? 'AND f.is_starred = true' : ''}
+        ${dateFilter}
+        ${cursor ? `AND f.created_at < $${baseParams.length + 1}` : ''}
+      ) as combined
+    `;
 
-      case 'starred':
-        query = `
-          WITH combined_items AS (
-            (
-              SELECT ${commonFolderSelect}, f.updated_at as last_starred_at
-              FROM drivefolders f
-              JOIN users u ON f.user_id = u.id
-              WHERE f.user_id = $1 AND f.is_starred = true AND f.is_trashed = false
-            )
-            UNION ALL
-            (
-              SELECT ${commonFileSelect}, f.last_starred_at
-              FROM files f
-              JOIN users u ON f.owner_id = u.id
-              WHERE f.owner_id = $1 AND f.is_starred = true AND f.is_trashed = false
-            )
-          )
-          SELECT * FROM combined_items
-          ORDER BY last_starred_at DESC
-          LIMIT $2 OFFSET $3
-        `;
+    const queryParams = [...baseParams];
+    if (cursor) queryParams.push(cursor);
+    queryParams.push(limit, offset);
 
-        countQuery = `
-          SELECT COUNT(*) as total_count FROM (
-            SELECT 1 FROM drivefolders f
-            WHERE f.user_id = $1 AND f.is_starred = true AND f.is_trashed = false
-            UNION ALL
-            SELECT 1 FROM files f
-            WHERE f.owner_id = $1 AND f.is_starred = true AND f.is_trashed = false
-          ) as combined
-        `;
-        break;
+    const countParams = [...baseParams];
+    if (cursor) countParams.push(cursor);
 
-      case 'trash':
-        query = `
-          WITH combined_items AS (
-            (
-              SELECT ${commonFolderSelect}, f.updated_at as trashed_at
-              FROM drivefolders f
-              JOIN users u ON f.user_id = u.id
-              WHERE f.user_id = $1 AND f.is_trashed = true
-            )
-            UNION ALL
-            (
-              SELECT ${commonFileSelect}, f.trashed_at
-              FROM files f
-              JOIN users u ON f.owner_id = u.id
-              WHERE f.owner_id = $1 AND f.is_trashed = true
-            )
-          )
-          SELECT * FROM combined_items
-          ORDER BY trashed_at DESC
-          LIMIT $2 OFFSET $3
-        `;
+    const result = await pool.query(buildQuery(), queryParams);
+    const countResult = await pool.query(buildCountQuery(), countParams);
 
-        countQuery = `
-          SELECT COUNT(*) as total_count FROM (
-            SELECT 1 FROM drivefolders f
-            WHERE f.user_id = $1 AND f.is_trashed = true
-            UNION ALL
-            SELECT 1 FROM files f
-            WHERE f.owner_id = $1 AND f.is_trashed = true
-          ) as combined
-        `;
-        break;
-    }
-
-    // Execute queries
-    const result = await pool.query(query, [...baseParams, limit, offset]);
-    
-    // Execute count query
-    const countResult = await pool.query(countQuery, baseParams.slice(0, folderId ? 2 : 1));
     const totalItems = parseInt(countResult.rows[0]?.total_count || 0);
-
-    // Calculate total pages
     const totalPages = Math.ceil(totalItems / limit);
 
-    // Format consistent response
-    const response = {
+    res.json({
       success: true,
       data: {
         items: result.rows,
@@ -1703,14 +1571,13 @@ case 'recent':
           total: totalItems,
           page: parseInt(page),
           limit: parseInt(limit),
-          totalPages: totalPages
+          totalPages
         },
-        ...(type === 'recent' && result.rows.length > 0 && { nextCursor: result.rows[result.rows.length - 1].updated_at }),
-        ...(type === 'recent' && filter && { filter })
+        ...(type === 'recent' && result.rows.length > 0 && { nextCursor: result.rows[result.rows.length - 1].created_at }),
+        ...(filter && { filter })
       }
-    };
-
-    res.json(response);
+    });
+  
   } catch (err) {
     console.error('Drive data error:', err);
     res.status(500).json({ 
@@ -1721,6 +1588,7 @@ case 'recent':
     });
   }
 };
+
 
 
 const permanentDeleteFile = async (req, res) => {
